@@ -1,5 +1,8 @@
 #include "systemcalls.h"
-
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/wait.h>
+#include <fcntl.h>
 /**
  * @param cmd the command to execute with system()
  * @return true if the command in @param cmd was executed
@@ -10,12 +13,13 @@
 bool do_system(const char *cmd)
 {
 
-/*
- * TODO  add your code here
- *  Call the system() function with the command set in the cmd
- *   and return a boolean true if the system() call completed with success
- *   or false() if it returned a failure
-*/
+ // --- 實作開始 ---
+    int status = system(cmd);
+    
+    // 如果 system() 執行失敗會回傳 -1
+    if (status == -1) {
+        return false;
+    }
 
     return true;
 }
@@ -49,15 +53,33 @@ bool do_exec(int count, ...)
     // and may be removed
     command[count] = command[count];
 
-/*
- * TODO:
- *   Execute a system command by calling fork, execv(),
- *   and wait instead of system (see LSP page 161).
- *   Use the command[0] as the full path to the command to execute
- *   (first argument to execv), and use the remaining arguments
- *   as second argument to the execv() command.
- *
-*/
+ fflush(stdout); // 清空輸出緩衝區，避免 printf 重複印出
+    
+    pid_t pid = fork();
+    
+    if (pid == -1) {
+        // fork 失敗
+        return false;
+    } else if (pid == 0) {
+        // 子行程
+        execv(command[0], command);
+        // 如果 execv 成功，程式會被替換，下面這行永遠不會執行
+        // 會走到這行代表 execv 失敗 (例如找不到指令)
+        exit(EXIT_FAILURE); 
+    } else {
+        // 父行程
+        int status;
+        if (waitpid(pid, &status, 0) == -1) {
+            return false;
+        }
+        // 檢查子行程是否正常結束 (WIFEXITED) 且回傳值為 0 (WEXITSTATUS)
+        if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+            return true;
+        } else {
+            return false;
+        }
+    }
+    // --- 你的實作到這裡結束 ---
 
     va_end(args);
 
@@ -85,13 +107,44 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
     command[count] = command[count];
 
 
-/*
- * TODO
- *   Call execv, but first using https://stackoverflow.com/a/13784315/1446624 as a refernce,
- *   redirect standard out to a file specified by outputfile.
- *   The rest of the behaviour is same as do_exec()
- *
-*/
+  // --- 你的實作從這裡開始 ---
+    
+    // 打開或建立檔案，設定權限為 0644
+    int fd = open(outputfile, O_WRONLY | O_TRUNC | O_CREAT, 0644);
+    if (fd < 0) {
+        return false;
+    }
+
+    fflush(stdout); 
+    
+    pid_t pid = fork();
+    
+    if (pid == -1) {
+        close(fd);
+        return false;
+    } else if (pid == 0) {
+        // 子行程：將 stdout(檔案描述符為1) 重導向到 fd
+        if (dup2(fd, 1) < 0) {
+            exit(EXIT_FAILURE);
+        }
+        close(fd); 
+        
+        execv(command[0], command);
+        exit(EXIT_FAILURE); 
+    } else {
+        // 父行程：不需要寫入檔案，直接關閉
+        close(fd); 
+        int status;
+        if (waitpid(pid, &status, 0) == -1) {
+            return false;
+        }
+        if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+            return true;
+        } else {
+            return false;
+        }
+    }
+    // --- 你的實作到這裡結束 ---
 
     va_end(args);
 
